@@ -29,6 +29,7 @@ from copy import deepcopy
 from mlp_numpy import MLP
 from modules import CrossEntropyModule
 import cifar10_utils
+import matplotlib.pyplot as plt
 
 import torch
 
@@ -53,7 +54,9 @@ def accuracy(predictions, targets):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-
+    predicted_classes = np.argmax(predictions, axis=1)
+    true_classes = np.argmax(targets, axis=1) if len(targets.shape) > 1 else targets
+    accuracy = np.mean(predicted_classes == true_classes)
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -81,7 +84,18 @@ def evaluate_model(model, data_loader):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
+    total_accuracy = 0
+    num_samples = 0
 
+    for batch_inputs, batch_targets in data_loader:
+        batch_inputs = batch_inputs.reshape(batch_inputs.shape[0], -1)
+
+        batch_predictions = model.forward(batch_inputs)
+        batch_accuracy = accuracy(batch_predictions, batch_targets)
+        total_accuracy += batch_accuracy * batch_inputs.shape[0]
+        num_samples += batch_inputs.shape[0]
+
+    avg_accuracy = total_accuracy / num_samples
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -127,22 +141,66 @@ def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
 
     ## Loading the dataset
     cifar10 = cifar10_utils.get_cifar10(data_dir)
-    cifar10_loader = cifar10_utils.get_dataloader(cifar10, batch_size=batch_size,
-                                                  return_numpy=True)
+    cifar10_loader = cifar10_utils.get_dataloader(
+        cifar10, batch_size=batch_size, return_numpy=True
+    )
 
     #######################
     # PUT YOUR CODE HERE  #
     #######################
 
     # TODO: Initialize model and loss module
-    model = ...
-    loss_module = ...
+    input_dim = 32 * 32 * 3
+    model = MLP(input_dim, hidden_dims, 10)
+    best_model = None
+    loss_module = CrossEntropyModule()
     # TODO: Training loop including validation
-    val_accuracies = ...
+    val_accuracies = []
+    best_val_accuracy = 0
     # TODO: Test best model
-    test_accuracy = ...
+    test_accuracy = 0
     # TODO: Add any information you might want to save for plotting
-    logging_dict = ...
+    logging_dict = {"train_loss": [], "train_acc": [], "val_loss": []}
+
+    train_loader = cifar10_loader["train"]
+    val_loader = cifar10_loader["validation"]
+    test_loader = cifar10_loader["test"]
+
+    for epoch in tqdm(range(epochs)):
+        train_loss = []
+        train_accuracies = []
+
+        for batch_inputs, batch_targets in train_loader:
+            batch_inputs = batch_inputs.reshape(batch_inputs.shape[0], -1)
+
+            outputs = model.forward(batch_inputs)
+            loss = loss_module.forward(outputs, batch_targets)
+
+            grad_outputs = loss_module.backward(outputs, batch_targets)
+            model.backward(grad_outputs)
+
+            for module in model.modules:
+                if hasattr(module, "params"):
+                    for param in module.params:
+                        module.params[param] -= lr * module.grads[param]
+
+            train_loss.append(loss)
+            train_accuracies.append(accuracy(outputs, batch_targets))
+
+        val_accuracy = evaluate_model(model, val_loader)
+        val_accuracies.append(val_accuracy)
+
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            best_model = deepcopy(model)
+
+        logging_dict["train_loss"].append(np.mean(train_loss))
+        logging_dict["train_acc"].append(np.mean(train_accuracies))
+        logging_dict["val_loss"].append(val_accuracy)
+
+    model = best_model
+    test_accuracy = evaluate_model(model, test_loader)
+
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -150,30 +208,57 @@ def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
     return model, val_accuracies, test_accuracy, logging_dict
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Command line arguments
     parser = argparse.ArgumentParser()
 
     # Model hyperparameters
-    parser.add_argument('--hidden_dims', default=[128], type=int, nargs='+',
-                        help='Hidden dimensionalities to use inside the network. To specify multiple, use " " to separate them. Example: "256 128"')
+    parser.add_argument(
+        "--hidden_dims",
+        default=[128],
+        type=int,
+        nargs="+",
+        help='Hidden dimensionalities to use inside the network. To specify multiple, use " " to separate them. Example: "256 128"',
+    )
 
     # Optimizer hyperparameters
-    parser.add_argument('--lr', default=0.1, type=float,
-                        help='Learning rate to use')
-    parser.add_argument('--batch_size', default=128, type=int,
-                        help='Minibatch size')
+    parser.add_argument("--lr", default=0.1, type=float, help="Learning rate to use")
+    parser.add_argument("--batch_size", default=128, type=int, help="Minibatch size")
 
     # Other hyperparameters
-    parser.add_argument('--epochs', default=10, type=int,
-                        help='Max number of epochs')
-    parser.add_argument('--seed', default=42, type=int,
-                        help='Seed to use for reproducing results')
-    parser.add_argument('--data_dir', default='data/', type=str,
-                        help='Data directory where to store/find the CIFAR10 dataset.')
+    parser.add_argument("--epochs", default=10, type=int, help="Max number of epochs")
+    parser.add_argument(
+        "--seed", default=42, type=int, help="Seed to use for reproducing results"
+    )
+    parser.add_argument(
+        "--data_dir",
+        default="data/",
+        type=str,
+        help="Data directory where to store/find the CIFAR10 dataset.",
+    )
 
     args = parser.parse_args()
     kwargs = vars(args)
 
-    train(**kwargs)
+    model, val_accuracies, test_accuracy, logging_dict = train(**kwargs)
     # Feel free to add any additional functions, such as plotting of the loss curve here
+
+    # plot loss
+    plt.plot(logging_dict["train_loss"])
+    plt.plot(logging_dict["val_loss"])
+    plt.legend(["train", "val"])
+    plt.title("Loss")
+    plt.show()
+    plt.savefig("loss.png")
+
+    # plot accuracy
+    plt.plot(logging_dict["train_acc"])
+    plt.title("Accuracy")
+    plt.legend(["train"])
+    plt.show()
+    plt.savefig("accuracy.png")
+
+    # print test accuracy
+    print("Test accuracy:", test_accuracy)
+    print("Val accuracies:", val_accuracies)
+    print("Best val accuracy:", np.max(val_accuracies))

@@ -59,7 +59,33 @@ class MLP(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        super().__init__()
+
+        layers = OrderedDict()
+
+        if not n_hidden:
+            layers["linear"] = nn.Linear(n_inputs, n_classes)
+            nn.init.kaiming_normal_(layers["linear"].weight)
+        else:
+            layers["linear0"] = nn.Linear(n_inputs, n_hidden[0])
+            nn.init.kaiming_normal_(layers["linear0"].weight)
+            if use_batch_norm:
+                layers["bn0"] = nn.BatchNorm1d(n_hidden[0])
+            layers["elu0"] = nn.ELU()
+
+            for i in range(len(n_hidden) - 1):
+                layers[f"linear{i+1}"] = nn.Linear(n_hidden[i], n_hidden[i + 1])
+                nn.init.kaiming_normal_(layers[f"linear{i+1}"].weight)
+                if use_batch_norm:
+                    layers[f"bn{i+1}"] = nn.BatchNorm1d(n_hidden[i + 1])
+                layers[f"elu{i+1}"] = nn.ELU()
+
+            layers[f"linear{len(n_hidden)}"] = nn.Linear(n_hidden[-1], n_classes)
+            nn.init.kaiming_normal_(layers[f"linear{len(n_hidden)}"].weight)
+
+        self.model = nn.Sequential(layers)
+        self.use_batch_norm = use_batch_norm
+
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -81,7 +107,8 @@ class MLP(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        out = x.view(x.shape[0], -1)
+        out = self.model(out)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -94,4 +121,3 @@ class MLP(nn.Module):
         Returns the device on which the model is. Can be useful in some situations.
         """
         return next(self.parameters()).device
-

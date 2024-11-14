@@ -33,6 +33,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from plot import plot_training_curves
+
 
 def accuracy(predictions, targets):
     """
@@ -55,7 +57,9 @@ def accuracy(predictions, targets):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-
+    predictions = predictions.argmax(dim=1)
+    targets = targets.argmax(dim=1) if len(targets.shape) > 1 else targets
+    accuracy = torch.mean((predictions == targets).float())
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -83,12 +87,46 @@ def evaluate_model(model, data_loader):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
+    model.eval()
+    total_accuracy = 0
+    total_samples = 0
 
+    with torch.no_grad():
+        for batch_inputs, batch_targets in data_loader:
+            batch_inputs = batch_inputs.to(model.device)
+            batch_targets = batch_targets.to(model.device)
+
+            predictions = model(batch_inputs)
+            batch_accuracy = accuracy(predictions, batch_targets)
+
+            total_accuracy += batch_accuracy * batch_inputs.size(0)
+            total_samples += batch_inputs.size(0)
+
+    avg_accuracy = total_accuracy / total_samples
+    model.train()
     #######################
     # END OF YOUR CODE    #
     #######################
 
     return avg_accuracy
+
+
+def validate(model, val_loader, loss_module, device):
+    model.eval()
+    val_losses = []
+
+    with torch.no_grad():
+        for batch_inputs, batch_targets in val_loader:
+            batch_inputs = batch_inputs.to(device)
+            batch_targets = batch_targets.to(device)
+
+            predictions = model(batch_inputs)
+            val_loss = loss_module(predictions, batch_targets)
+            val_losses.append(val_loss.item())
+
+    val_accuracy = evaluate_model(model, val_loader)
+    model.train()
+    return np.mean(val_losses), val_accuracy
 
 
 def train(hidden_dims, lr, use_batch_norm, batch_size, epochs, seed, data_dir):
@@ -134,27 +172,70 @@ def train(hidden_dims, lr, use_batch_norm, batch_size, epochs, seed, data_dir):
         torch.backends.cudnn.benchmark = False
 
     # Set default device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Loading the dataset
     cifar10 = cifar10_utils.get_cifar10(data_dir)
-    cifar10_loader = cifar10_utils.get_dataloader(cifar10, batch_size=batch_size,
-                                                  return_numpy=False)
+    cifar10_loader = cifar10_utils.get_dataloader(
+        cifar10, batch_size=batch_size, return_numpy=False
+    )
 
     #######################
     # PUT YOUR CODE HERE  #
     #######################
 
-    # TODO: Initialize model and loss module
-    model = ...
-    loss_module = ...
-    # TODO: Training loop including validation
-    # TODO: Do optimization with the simple SGD optimizer
-    val_accuracies = ...
-    # TODO: Test best model
-    test_accuracy = ...
-    # TODO: Add any information you might want to save for plotting
-    logging_dict = ...
+    input_dim = 32 * 32 * 3
+    model = MLP(
+        n_inputs=input_dim,
+        n_hidden=hidden_dims,
+        n_classes=10,
+        use_batch_norm=use_batch_norm,
+    ).to(device)
+    loss_module = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=lr)
+    val_accuracies = []
+    best_val_accuracy = 0
+    best_model = None
+    logging_dict = {
+        "losses": {"train": [], "validation": []},
+        "accuracies": {"train": [], "validation": []},
+    }
+
+    for epoch in tqdm(range(epochs)):
+        model.train()
+        train_losses = []
+        train_accuracies = []
+
+        for batch_inputs, batch_targets in cifar10_loader["train"]:
+            batch_inputs = batch_inputs.to(device)
+            batch_targets = batch_targets.to(device)
+
+            predictions = model(batch_inputs)
+            loss = loss_module(predictions, batch_targets)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            train_losses.append(loss.item())
+            train_accuracies.append(accuracy(predictions, batch_targets).item())
+
+        val_loss, val_accuracy = validate(
+            model, cifar10_loader["validation"], loss_module, device
+        )
+        val_accuracies.append(val_accuracy)
+
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            best_model = deepcopy(model)
+
+        logging_dict["losses"]["train"].append(np.mean(train_losses))
+        logging_dict["losses"]["validation"].append(val_loss)
+        logging_dict["accuracies"]["train"].append(np.mean(train_accuracies))
+        logging_dict["accuracies"]["validation"].append(val_accuracy)
+
+    test_accuracy = evaluate_model(best_model, cifar10_loader["test"])
+
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -162,32 +243,44 @@ def train(hidden_dims, lr, use_batch_norm, batch_size, epochs, seed, data_dir):
     return model, val_accuracies, test_accuracy, logging_dict
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Command line arguments
     parser = argparse.ArgumentParser()
 
     # Model hyperparameters
-    parser.add_argument('--hidden_dims', default=[128], type=int, nargs='+',
-                        help='Hidden dimensionalities to use inside the network. To specify multiple, use " " to separate them. Example: "256 128"')
-    parser.add_argument('--use_batch_norm', action='store_true',
-                        help='Use this option to add Batch Normalization layers to the MLP.')
+    parser.add_argument(
+        "--hidden_dims",
+        default=[128],
+        type=int,
+        nargs="+",
+        help='Hidden dimensionalities to use inside the network. To specify multiple, use " " to separate them. Example: "256 128"',
+    )
+    parser.add_argument(
+        "--use_batch_norm",
+        action="store_true",
+        help="Use this option to add Batch Normalization layers to the MLP.",
+    )
 
     # Optimizer hyperparameters
-    parser.add_argument('--lr', default=0.1, type=float,
-                        help='Learning rate to use')
-    parser.add_argument('--batch_size', default=128, type=int,
-                        help='Minibatch size')
+    parser.add_argument("--lr", default=0.1, type=float, help="Learning rate to use")
+    parser.add_argument("--batch_size", default=128, type=int, help="Minibatch size")
 
     # Other hyperparameters
-    parser.add_argument('--epochs', default=10, type=int,
-                        help='Max number of epochs')
-    parser.add_argument('--seed', default=42, type=int,
-                        help='Seed to use for reproducing results')
-    parser.add_argument('--data_dir', default='data/', type=str,
-                        help='Data directory where to store/find the CIFAR10 dataset.')
+    parser.add_argument("--epochs", default=10, type=int, help="Max number of epochs")
+    parser.add_argument(
+        "--seed", default=42, type=int, help="Seed to use for reproducing results"
+    )
+    parser.add_argument(
+        "--data_dir",
+        default="data/",
+        type=str,
+        help="Data directory where to store/find the CIFAR10 dataset.",
+    )
 
     args = parser.parse_args()
     kwargs = vars(args)
 
-    train(**kwargs)
+    model, val_accuracies, test_accuracy, logging_dict = train(**kwargs)
     # Feel free to add any additional functions, such as plotting of the loss curve here
+    print(f"Test accuracy of best model: {test_accuracy}")
+    plot_training_curves(logging_dict)

@@ -29,9 +29,10 @@ from copy import deepcopy
 from mlp_numpy import MLP
 from modules import CrossEntropyModule
 import cifar10_utils
-import matplotlib.pyplot as plt
 
 import torch
+
+from plot import plot_training_curves
 
 
 def accuracy(predictions, targets):
@@ -103,6 +104,18 @@ def evaluate_model(model, data_loader):
     return avg_accuracy
 
 
+def validate(model, val_loader, loss_module):
+    val_losses = []
+    for batch_inputs, batch_targets in val_loader:
+        batch_inputs = batch_inputs.reshape(batch_inputs.shape[0], -1)
+        outputs = model.forward(batch_inputs)
+        val_loss = loss_module.forward(outputs, batch_targets)
+        val_losses.append(val_loss)
+
+    val_accuracy = evaluate_model(model, val_loader)
+    return np.mean(val_losses), val_accuracy
+
+
 def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
     """
     Performs a full training cycle of MLP model.
@@ -148,19 +161,17 @@ def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-
-    # TODO: Initialize model and loss module
     input_dim = 32 * 32 * 3
     model = MLP(input_dim, hidden_dims, 10)
     best_model = None
     loss_module = CrossEntropyModule()
-    # TODO: Training loop including validation
     val_accuracies = []
     best_val_accuracy = 0
-    # TODO: Test best model
     test_accuracy = 0
-    # TODO: Add any information you might want to save for plotting
-    logging_dict = {"train_loss": [], "train_acc": [], "val_loss": []}
+    logging_dict = {
+        "losses": {"train": [], "validation": []},
+        "accuracies": {"train": [], "validation": []},
+    }
 
     train_loader = cifar10_loader["train"]
     val_loader = cifar10_loader["validation"]
@@ -169,6 +180,7 @@ def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
     for epoch in tqdm(range(epochs)):
         train_loss = []
         train_accuracies = []
+        val_losses = []
 
         for batch_inputs, batch_targets in train_loader:
             batch_inputs = batch_inputs.reshape(batch_inputs.shape[0], -1)
@@ -187,16 +199,18 @@ def train(hidden_dims, lr, batch_size, epochs, seed, data_dir):
             train_loss.append(loss)
             train_accuracies.append(accuracy(outputs, batch_targets))
 
-        val_accuracy = evaluate_model(model, val_loader)
+        val_loss, val_accuracy = validate(model, val_loader, loss_module)
         val_accuracies.append(val_accuracy)
+        val_losses.append(val_loss)
 
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
             best_model = deepcopy(model)
 
-        logging_dict["train_loss"].append(np.mean(train_loss))
-        logging_dict["train_acc"].append(np.mean(train_accuracies))
-        logging_dict["val_loss"].append(val_accuracy)
+        logging_dict["losses"]["train"].append(np.mean(train_loss))
+        logging_dict["losses"]["validation"].append(np.mean(val_losses))
+        logging_dict["accuracies"]["train"].append(np.mean(train_accuracies))
+        logging_dict["accuracies"]["validation"].append(val_accuracy)
 
     model = best_model
     test_accuracy = evaluate_model(model, test_loader)
@@ -241,24 +255,5 @@ if __name__ == "__main__":
     kwargs = vars(args)
 
     model, val_accuracies, test_accuracy, logging_dict = train(**kwargs)
-    # Feel free to add any additional functions, such as plotting of the loss curve here
-
-    # plot loss
-    plt.plot(logging_dict["train_loss"])
-    plt.plot(logging_dict["val_loss"])
-    plt.legend(["train", "val"])
-    plt.title("Loss")
-    plt.show()
-    plt.savefig("loss.png")
-
-    # plot accuracy
-    plt.plot(logging_dict["train_acc"])
-    plt.title("Accuracy")
-    plt.legend(["train"])
-    plt.show()
-    plt.savefig("accuracy.png")
-
-    # print test accuracy
-    print("Test accuracy:", test_accuracy)
-    print("Val accuracies:", val_accuracies)
-    print("Best val accuracy:", np.max(val_accuracies))
+    print(f"Test accuracy of best model: {test_accuracy * 100}%")
+    plot_training_curves(logging_dict)

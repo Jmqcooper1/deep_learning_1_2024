@@ -585,7 +585,6 @@ class GPT(nn.Module):
                 idx_next = torch.argmax(logits, dim=-1).unsqueeze(-1)
 
             else:
-                # pluck the logits at the final step and scale by desired temperature
                 # apply softmax to convert logits to (normalized) probabilities
                 probs = F.softmax(logits, dim=-1)
 

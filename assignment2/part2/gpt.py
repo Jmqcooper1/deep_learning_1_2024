@@ -515,12 +515,13 @@ class GPT(nn.Module):
 
         x = self.transformer.drop(x)
 
-        for block in self.transformer.blocks:
+        for block in self.transformer.h:
             x = block(x)
 
         # Iterate through the transformer blocks
         # Apply final layer normalization and linear layer to produce logits
-        logits = self.transformer.lm_head(self.transformer.ln_f(x))
+        x = self.transformer.ln_f(x)
+        logits = self.lm_head(x)
 
         return logits
 
@@ -579,7 +580,7 @@ class GPT(nn.Module):
 
             if not do_sample:
                 # take the most likely token
-                idx_next = torch.argmax(logits, dim=-1)
+                idx_next = torch.argmax(logits, dim=-1).unsqueeze(-1)
 
             else:
                 # pluck the logits at the final step and scale by desired temperature

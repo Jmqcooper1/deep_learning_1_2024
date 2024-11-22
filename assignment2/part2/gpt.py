@@ -203,21 +203,22 @@ class CausalSelfAttention(nn.Module):
         # Mask the calculated attention weights with the mask parameter.
 
         if self.use_flash_attn:
-            q = q * (1.0 / math.sqrt(head_dim))  # Scale queries
+            q = q * (1.0 / math.sqrt(head_dim))
 
-            # Ensure contiguous tensors
             q = q.contiguous()
             k = k.contiguous()
             v = v.contiguous()
+
+            mask = self.mask[:, :, :T, :T].contiguous()
 
             y = F.scaled_dot_product_attention(
                 q,
                 k,
                 v,
-                attn_mask=None,  # No need for explicit mask when is_causal=True
-                dropout_p=self.attn_dropout.p,  # Use the module's dropout probability
-                is_causal=True,  # This handles the causal masking internally
-                scale=None,  # We already scaled q
+                attn_mask=mask,
+                dropout_p=self.attn_dropout.p,
+                is_causal=False,
+                scale=None,
             )
         else:
             # Compute attention scores

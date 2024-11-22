@@ -24,27 +24,27 @@ class BERTGELU(nn.Module):
     """
 
     def forward(self, x):
-        # return (
-        #     0.5
-        #     * x
-        #     * (
-        #         1.0
-        #         + torch.tanh(
-        #             torch.sqrt(torch.tensor(2.0 / torch.pi, device=x.device))
-        #             * (x + 0.044715 * torch.pow(x, 3.0))
-        #         )
-        #     )
-        # )
         return (
             0.5
             * x
             * (
                 1.0
                 + torch.tanh(
-                    math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+                    torch.sqrt(torch.tensor(2.0 / torch.pi, device=x.device))
+                    * (x + 0.044715 * torch.pow(x, 3.0))
                 )
             )
         )
+        # return (
+        #     0.5
+        #     * x
+        #     * (
+        #         1.0
+        #         + torch.tanh(
+        #             math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+        #         )
+        #     )
+        # )
 
 
 class RMSNorm(nn.Module):
@@ -186,7 +186,7 @@ class CausalSelfAttention(nn.Module):
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         # Split output of attention-head in query, key and value
         qkv = self.c_attn(x)
-        qkv = torch.clamp(qkv, min=-100, max=100)  # Prevent extreme values
+        qkv = torch.clamp(qkv, min=-1e2, max=1e2)  # Clamping
         q, k, v = qkv.split(C, dim=-1)
         # q, k, v = self.c_attn(x).split(C, dim=-1)
 
@@ -214,7 +214,7 @@ class CausalSelfAttention(nn.Module):
                 v,
                 attn_mask=mask,
                 dropout_p=self.attn_dropout.p,
-                is_causal=False,
+                is_causal=True,
                 scale=None,
             )
         else:
@@ -287,6 +287,7 @@ class TransformerDecoderBlock(nn.Module):
         attn_out = self.self_attention(attn_norm)
         attn_out = torch.clamp(attn_out, min=-100, max=100)
         x = x + attn_out
+        x = torch.clamp(x, min=-1e2, max=1e2)
 
         # MLP block with residual
         mlp_norm = self.layer_norm_2(x)
@@ -299,6 +300,7 @@ class TransformerDecoderBlock(nn.Module):
         mlp_out = torch.clamp(mlp_out, min=-100, max=100)
 
         out = x + mlp_out
+        out = torch.clamp(x, min=-1e2, max=1e2)
         return out
 
 
@@ -618,9 +620,8 @@ class GPT(nn.Module):
             logits = self(idx_cond)
 
             logits = logits[:, -1, :]
-            temperature = max(temperature, 1e-5)
-            logits = logits / temperature
-            logits = torch.clamp(logits, min=-100, max=100)
+            logits = logits / max(temperature, 1e-5)  # Avoid division by zero
+            logits = torch.clamp(logits, min=-1e2, max=1e2)  # Prevent overflow
 
             if not do_sample:
                 # take the most likely token

@@ -280,18 +280,25 @@ class TransformerDecoderBlock(nn.Module):
 
     def forward(self, x):
         # Forward pass through the Decoder Layer
-        out = torch.clamp(x, min=-100, max=100)
+        x = torch.clamp(x, min=-100, max=100)
 
         # Attention block with residual
-        attn_out = self.self_attention(self.layer_norm_1(out))
+        attn_norm = self.layer_norm_1(x)
+        attn_out = self.self_attention(attn_norm)
         attn_out = torch.clamp(attn_out, min=-100, max=100)
-        out = out + attn_out
+        x = x + attn_out
 
         # MLP block with residual
-        mlp_out = self.mlpf(self.layer_norm_2(out))
+        mlp_norm = self.layer_norm_2(x)
+        mlp_up = self.mlp_up(mlp_norm)
+        mlp_up = torch.clamp(mlp_up, min=-100, max=100)
+        mlp_act = self.mlp_act(mlp_up)
+        mlp_act = torch.clamp(mlp_act, min=-100, max=100)
+        mlp_down = self.mlp_down(mlp_act)
+        mlp_out = self.mlp_drop(mlp_down)
         mlp_out = torch.clamp(mlp_out, min=-100, max=100)
-        out = out + mlp_out
 
+        out = x + mlp_out
         return out
 
 

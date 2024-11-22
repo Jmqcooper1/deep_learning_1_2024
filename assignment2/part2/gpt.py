@@ -30,10 +30,21 @@ class BERTGELU(nn.Module):
             * (
                 1.0
                 + torch.tanh(
-                    math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+                    torch.sqrt(torch.tensor(2.0 / torch.pi, device=x.device))
+                    * (x + 0.044715 * torch.pow(x, 3.0))
                 )
             )
         )
+        # return (
+        #     0.5
+        #     * x
+        #     * (
+        #         1.0
+        #         + torch.tanh(
+        #             math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+        #         )
+        #     )
+        # )
 
 
 class RMSNorm(nn.Module):

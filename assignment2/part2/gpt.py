@@ -204,9 +204,14 @@ class CausalSelfAttention(nn.Module):
 
         if self.use_flash_attn:
             q = q * (1.0 / math.sqrt(head_dim))
-            # Add dropout mask explicitly
+            # Ensure contiguous tensors with consistent strides
+            q = q.contiguous()
+            k = k.contiguous()
+            v = v.contiguous()
+
             attn_mask = torch.ones((B, self.n_head, T, T), device=x.device)
             attn_mask = self.attn_dropout(attn_mask)
+            attn_mask = attn_mask.contiguous()
 
             y = F.scaled_dot_product_attention(
                 q,

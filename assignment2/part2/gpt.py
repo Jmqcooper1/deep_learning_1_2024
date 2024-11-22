@@ -203,16 +203,19 @@ class CausalSelfAttention(nn.Module):
         # Mask the calculated attention weights with the mask parameter.
 
         if self.use_flash_attn:
-            scale = 1.0 / math.sqrt(head_dim)
-            q = q * scale
+            q = q * (1.0 / math.sqrt(head_dim))
+            # Add dropout mask explicitly
+            attn_mask = torch.ones((B, self.n_head, T, T), device=x.device)
+            attn_mask = self.attn_dropout(attn_mask)
+
             y = F.scaled_dot_product_attention(
                 q,
                 k,
                 v,
-                attn_mask=None,
-                dropout_p=self.attn_dropout.p,
+                attn_mask=attn_mask,
+                dropout_p=0.0,  # We handled dropout above
                 is_causal=True,
-                scale=None,
+                scale=None,  # We already scaled q
             )
         else:
             # Compute attention scores

@@ -198,7 +198,8 @@ class CausalSelfAttention(nn.Module):
             )
         else:
             # Compute attention scores
-            att = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))
+            scale = 1.0 / math.sqrt(head_dim)
+            att = (q @ k.transpose(-2, -1)) * scale
             # Apply causal mask
             att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
             # Apply attention to the values

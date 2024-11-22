@@ -189,11 +189,13 @@ class CausalSelfAttention(nn.Module):
         # Mask the calculated attention weights with the mask parameter.
 
         if self.use_flash_attn:
+            q = q * (head_dim**-0.5)
             y = F.scaled_dot_product_attention(
                 q,
                 k,
                 v,
-                dropout_p=self.attn_dropout.p,  # Note: use .p to get probability
+                attn_mask=None,
+                dropout_p=self.attn_dropout.p,
                 is_causal=True,
             )
         else:
@@ -203,13 +205,13 @@ class CausalSelfAttention(nn.Module):
             # Apply causal mask
             att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
             # Apply attention to the values
-            att = F.softmax(att, dim=-1)
+            att = F.softmax(att + 1e-10, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+
         y = (
             y.transpose(1, 2).contiguous().view(B, T, C)
         )  # re-assemble all head outputs side by side
-
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y if not self.debug else {"att_probs": att, "q": q, "k": k, "v": v}

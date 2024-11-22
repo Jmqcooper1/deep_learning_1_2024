@@ -204,12 +204,9 @@ class CausalSelfAttention(nn.Module):
 
         if self.use_flash_attn:
             q = q * (1.0 / math.sqrt(head_dim))
+            q = torch.clamp(q, min=-100, max=100)
 
-            q = q.contiguous()
-            k = k.contiguous()
-            v = v.contiguous()
-
-            mask = self.mask[:, :, :T, :T].contiguous()
+            mask = self.mask[:, :, :T, :T].to(dtype=q.dtype)
 
             y = F.scaled_dot_product_attention(
                 q,
@@ -274,23 +271,34 @@ class TransformerDecoderBlock(nn.Module):
         self.layer_norm_1 = RMSNorm(self.n_embd)
         self.self_attention = CausalSelfAttention(config)
         self.layer_norm_2 = RMSNorm(self.n_embd)
-        self.mlpf = nn.Sequential(
-            nn.Linear(self.n_embd, 4 * self.n_embd),
-            BERTGELU(),
-            nn.Linear(4 * self.n_embd, self.n_embd),
-            nn.Dropout(self.resid_pdrop),
-        )
+
+        # Break down MLP into separate components for better control
+        self.mlp_up = nn.Linear(self.n_embd, 4 * self.n_embd)
+        self.mlp_act = BERTGELU()
+        self.mlp_down = nn.Linear(4 * self.n_embd, self.n_embd)
+        self.mlp_drop = nn.Dropout(self.resid_pdrop)
 
     def forward(self, x):
         # Forward pass through the Decoder Layer
         x = torch.clamp(x, min=-100, max=100)
-        attn_out = self.self_attention(self.layer_norm_1(x))
-        attn_out = torch.clamp(attn_out, min=-100, max=100)
-        out = x + attn_out
 
-        mlp_out = self.mlpf(self.layer_norm_2(out))
+        # Attention block with residual
+        attn_norm = self.layer_norm_1(x)
+        attn_out = self.self_attention(attn_norm)
+        attn_out = torch.clamp(attn_out, min=-100, max=100)
+        x = x + attn_out
+
+        # MLP block with residual
+        mlp_norm = self.layer_norm_2(x)
+        mlp_up = self.mlp_up(mlp_norm)
+        mlp_up = torch.clamp(mlp_up, min=-100, max=100)
+        mlp_act = self.mlp_act(mlp_up)
+        mlp_act = torch.clamp(mlp_act, min=-100, max=100)
+        mlp_down = self.mlp_down(mlp_act)
+        mlp_out = self.mlp_drop(mlp_down)
         mlp_out = torch.clamp(mlp_out, min=-100, max=100)
-        out = out + mlp_out
+
+        x = x + mlp_out
         return out
 
 

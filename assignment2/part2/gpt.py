@@ -24,27 +24,27 @@ class BERTGELU(nn.Module):
     """
 
     def forward(self, x):
-        return (
-            0.5
-            * x
-            * (
-                1.0
-                + torch.tanh(
-                    torch.sqrt(torch.tensor(2.0 / torch.pi, device=x.device))
-                    * (x + 0.044715 * torch.pow(x, 3.0))
-                )
-            )
-        )
         # return (
         #     0.5
         #     * x
         #     * (
         #         1.0
         #         + torch.tanh(
-        #             math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+        #             torch.sqrt(torch.tensor(2.0 / torch.pi, device=x.device))
+        #             * (x + 0.044715 * torch.pow(x, 3.0))
         #         )
         #     )
         # )
+        return (
+            0.5
+            * x
+            * (
+                1.0
+                + torch.tanh(
+                    math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
+                )
+            )
+        )
 
 
 class RMSNorm(nn.Module):
@@ -185,7 +185,10 @@ class CausalSelfAttention(nn.Module):
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         # Split output of attention-head in query, key and value
-        q, k, v = self.c_attn(x).split(C, dim=-1)
+        qkv = self.c_attn(x)
+        qkv = torch.clamp(qkv, min=-100, max=100)  # Prevent extreme values
+        q, k, v = qkv.split(C, dim=-1)
+        # q, k, v = self.c_attn(x).split(C, dim=-1)
 
         head_dim = C // self.n_head
         q = q.view(B, T, self.n_head, head_dim).transpose(1, 2)
@@ -200,7 +203,8 @@ class CausalSelfAttention(nn.Module):
         # Mask the calculated attention weights with the mask parameter.
 
         if self.use_flash_attn:
-            q = q * (head_dim**-0.5)
+            scale = 1.0 / math.sqrt(head_dim)
+            q = q * scale
             y = F.scaled_dot_product_attention(
                 q,
                 k,
@@ -208,15 +212,18 @@ class CausalSelfAttention(nn.Module):
                 attn_mask=None,
                 dropout_p=self.attn_dropout.p,
                 is_causal=True,
+                scale=None,
             )
         else:
             # Compute attention scores
             scale = 1.0 / math.sqrt(head_dim)
             att = (q @ k.transpose(-2, -1)) * scale
             # Apply causal mask
-            att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
+            mask = self.mask[:, :, :T, :T]
+            att = att.masked_fill(mask == 0, -1e4)
             # Apply attention to the values
-            att = F.softmax(att + 1e-10, dim=-1)
+            att = att - att.max(dim=-1, keepdim=True)[0]
+            att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
 
@@ -225,6 +232,7 @@ class CausalSelfAttention(nn.Module):
         )  # re-assemble all head outputs side by side
         # output projection
         y = self.resid_dropout(self.c_proj(y))
+        y = torch.clamp(y, min=-100, max=100)  # Prevent extreme values
         return y if not self.debug else {"att_probs": att, "q": q, "k": k, "v": v}
 
 
@@ -269,12 +277,14 @@ class TransformerDecoderBlock(nn.Module):
 
     def forward(self, x):
         # Forward pass through the Decoder Layer
-        out = x + self.self_attention(
-            self.layer_norm_1(x)
-        )  # Residual connection for attention layer
-        out = out + self.mlpf(
-            self.layer_norm_2(out)
-        )  # Residual connection for MLP layer
+        x = torch.clamp(x, min=-100, max=100)
+        attn_out = self.self_attention(self.layer_norm_1(x))
+        attn_out = torch.clamp(attn_out, min=-100, max=100)
+        out = x + attn_out
+
+        mlp_out = self.mlpf(self.layer_norm_2(out))
+        mlp_out = torch.clamp(mlp_out, min=-100, max=100)
+        out = out + mlp_out
         return out
 
 
@@ -592,7 +602,11 @@ class GPT(nn.Module):
             # forward the model to get the logits for the index in the sequence
             # pluck the logits at the final step and scale by desired temperature
             logits = self(idx_cond)
-            logits = logits[:, -1, :] / temperature
+
+            logits = logits[:, -1, :]
+            temperature = max(temperature, 1e-5)
+            logits = logits / temperature
+            logits = torch.clamp(logits, min=-100, max=100)
 
             if not do_sample:
                 # take the most likely token

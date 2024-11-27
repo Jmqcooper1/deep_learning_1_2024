@@ -191,27 +191,26 @@ class CausalSelfAttention(nn.Module):
         # Mask the calculated attention weights with the mask parameter.
 
         if self.use_flash_attn:
-            q = q * (1.0 / math.sqrt(head_dim))
-            q = torch.clamp(q, min=-100, max=100)
-
             mask = self.mask[:, :, :T, :T].to(dtype=q.dtype)
 
-            y = F.scaled_dot_product_attention(
-                q,
-                k,
-                v,
-                attn_mask=mask,
-                dropout_p=self.attn_dropout.p,
-                is_causal=True,
-                scale=None,
-            )
+            with torch.backends.cuda.sdp_kernel(
+                enable_flash=True, enable_math=False, enable_mem_efficient=False
+            ):
+                y = F.scaled_dot_product_attention(
+                    q,
+                    k,
+                    v,
+                    attn_mask=mask,
+                    dropout_p=self.attn_dropout.p,
+                    is_causal=True,
+                )
         else:
             # Compute attention scores
             scale = 1.0 / math.sqrt(head_dim)
             att = (q @ k.transpose(-2, -1)) * scale
             # Apply causal mask
             mask = self.mask[:, :, :T, :T]
-            att = att.masked_fill(mask == 0, -1e4)
+            att = att.masked_fill(mask == 0, -1e9)
             # Apply attention to the values
             att = att - att.max(dim=-1, keepdim=True)[0]
             att = F.softmax(att, dim=-1)
@@ -223,7 +222,7 @@ class CausalSelfAttention(nn.Module):
         )  # re-assemble all head outputs side by side
         # output projection
         y = self.resid_dropout(self.c_proj(y))
-        y = torch.clamp(y, min=-100, max=100)  # Prevent extreme values
+        y = torch.clamp(y, min=-1e2, max=1e2)
         return y if not self.debug else {"att_probs": att, "q": q, "k": k, "v": v}
 
 
@@ -268,24 +267,24 @@ class TransformerDecoderBlock(nn.Module):
 
     def forward(self, x):
         # Forward pass through the Decoder Layer
-        x = torch.clamp(x, min=-100, max=100)
+        x = torch.clamp(x, min=-1e2, max=1e2)  # Use larger bounds
 
         # Attention block with residual
         attn_norm = self.layer_norm_1(x)
         attn_out = self.self_attention(attn_norm)
-        attn_out = torch.clamp(attn_out, min=-100, max=100)
+        attn_out = torch.clamp(attn_out, min=-1e2, max=1e2)
         x = x + attn_out
         x = torch.clamp(x, min=-1e2, max=1e2)
 
         # MLP block with residual
         mlp_norm = self.layer_norm_2(x)
         mlp_up = self.mlp_up(mlp_norm)
-        mlp_up = torch.clamp(mlp_up, min=-100, max=100)
+        mlp_up = torch.clamp(mlp_up, min=-1e2, max=1e2)
         mlp_act = self.mlp_act(mlp_up)
-        mlp_act = torch.clamp(mlp_act, min=-100, max=100)
+        mlp_act = torch.clamp(mlp_act, min=-1e2, max=1e2)
         mlp_down = self.mlp_down(mlp_act)
         mlp_out = self.mlp_drop(mlp_down)
-        mlp_out = torch.clamp(mlp_out, min=-100, max=100)
+        mlp_out = torch.clamp(mlp_out, min=-1e2, max=1e2)
 
         out = x + mlp_out
         out = torch.clamp(out, min=-1e2, max=1e2)

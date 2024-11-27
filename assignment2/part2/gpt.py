@@ -30,21 +30,10 @@ class BERTGELU(nn.Module):
             * (
                 1.0
                 + torch.tanh(
-                    torch.sqrt(torch.tensor(2.0 / torch.pi, device=x.device))
-                    * (x + 0.044715 * torch.pow(x, 3.0))
+                    math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
                 )
             )
         )
-        # return (
-        #     0.5
-        #     * x
-        #     * (
-        #         1.0
-        #         + torch.tanh(
-        #             math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
-        #         )
-        #     )
-        # )
 
 
 class RMSNorm(nn.Module):
@@ -186,9 +175,8 @@ class CausalSelfAttention(nn.Module):
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         # Split output of attention-head in query, key and value
         qkv = self.c_attn(x)
-        qkv = torch.clamp(qkv, min=-1e2, max=1e2)  # Clamping
+        qkv = torch.clamp(qkv, min=-1e2, max=1e2)
         q, k, v = qkv.split(C, dim=-1)
-        # q, k, v = self.c_attn(x).split(C, dim=-1)
 
         head_dim = C // self.n_head
         q = q.view(B, T, self.n_head, head_dim).transpose(1, 2)

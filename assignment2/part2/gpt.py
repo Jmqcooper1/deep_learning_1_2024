@@ -53,9 +53,17 @@ class RMSNorm(nn.Module):
     def forward(self, x):
         # Compute the norm of the input tensor and divide by the norm
         # Scale the normalized tensor by the learned weight parameter
-        rms = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
+        x = torch.clamp(x, min=-1e2, max=1e2)
+
+        x_squared = x.pow(2)
+        mean_squared = x_squared.mean(dim=-1, keepdim=True)
+        mean_squared = torch.clamp(mean_squared, min=self.eps)
+        rms = torch.sqrt(mean_squared)
+
         x_normalized = x / rms
         output = self.weight * x_normalized
+
+        output = torch.clamp(output, min=-1e2, max=1e2)
         return output
 
 
@@ -153,16 +161,16 @@ class CausalSelfAttention(nn.Module):
         # Rotate query and key tensors
         xq_rot = torch.cat(
             [
-                xq_even * pos_cos - xq_odd * pos_sin,
-                xq_odd * pos_cos + xq_even * pos_sin,
+                torch.clamp(xq_even * pos_cos - xq_odd * pos_sin, min=-1e2, max=1e2),
+                torch.clamp(xq_odd * pos_cos + xq_even * pos_sin, min=-1e2, max=1e2),
             ],
             dim=-1,
         )
 
         xk_rot = torch.cat(
             [
-                xk_even * pos_cos - xk_odd * pos_sin,
-                xk_odd * pos_cos + xk_even * pos_sin,
+                torch.clamp(xk_even * pos_cos - xk_odd * pos_sin, min=-1e2, max=1e2),
+                torch.clamp(xk_odd * pos_cos + xk_even * pos_sin, min=-1e2, max=1e2),
             ],
             dim=-1,
         )
@@ -214,8 +222,11 @@ class CausalSelfAttention(nn.Module):
             mask = self.mask[:, :, :T, :T]
             att = att.masked_fill(mask == 0, -1e4)
             # Apply attention to the values
-            att = att - att.max(dim=-1, keepdim=True)[0]
+            att_max = att.max(dim=-1, keepdim=True)[0].detach()
+            att = att - att_max
             att = F.softmax(att, dim=-1)
+            att = att.masked_fill(mask == 0, 0)
+
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
 
@@ -607,35 +618,40 @@ class GPT(nn.Module):
             # forward the model to get the logits for the index in the sequence
             # pluck the logits at the final step and scale by desired temperature
             logits = self(idx_cond)
-
             logits = logits[:, -1, :]
-            logits = logits / max(temperature, 1e-5)  # Avoid division by zero
-            logits = torch.clamp(logits, min=-1e2, max=1e2)  # Prevent overflow
+
+            if temperature != 1.0:
+                logits = logits / max(temperature, 1e-5)
+
+            logits = torch.clamp(logits, min=-1e2, max=1e2)
 
             if not do_sample:
                 # take the most likely token
-                idx_next = torch.argmax(logits, dim=-1).unsqueeze(-1)
+                idx_next = torch.argmax(logits, dim=-1, keepdim=True)
 
             else:
                 # apply softmax to convert logits to (normalized) probabilities
+                logits = logits - logits.max(dim=-1, keepdim=True)[0]
                 probs = F.softmax(logits, dim=-1)
 
                 # optionally only consider top-k logits for sampling.
                 if top_k is not None:
-                    v, _ = torch.topk(probs, top_k)
+                    v, _ = torch.topk(probs, min(top_k, probs.size(-1)))
                     probs[probs < v[:, [-1]]] = 0
                     probs = probs / probs.sum(dim=-1, keepdim=True)
 
                 # optionally apply top-p sampling
                 if top_p is not None:
-                    sorted_probs, indices = torch.sort(probs, descending=True)
+                    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
                     cumsum_probs = torch.cumsum(sorted_probs, dim=-1)
-                    # Keep tokens that are within top_p cumulative probability
                     mask = cumsum_probs <= top_p
-                    probs = torch.zeros_like(probs).scatter_(
-                        -1, indices[: mask.size(0)], sorted_probs * mask
+                    mask = torch.cat(
+                        [torch.ones_like(mask[:, :1]), mask[:, :-1]], dim=1
                     )
-                    probs = probs / probs.sum(dim=-1, keepdim=True)
+                    sorted_probs = sorted_probs * mask
+                    sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True)
+                    probs = torch.zeros_like(probs)
+                    probs.scatter_(1, sorted_indices, sorted_probs)
 
                 idx_next = torch.multinomial(probs, num_samples=1)
 

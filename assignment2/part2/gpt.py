@@ -288,7 +288,7 @@ class TransformerDecoderBlock(nn.Module):
         mlp_out = torch.clamp(mlp_out, min=-100, max=100)
 
         out = x + mlp_out
-        out = torch.clamp(x, min=-1e2, max=1e2)
+        out = torch.clamp(out, min=-1e2, max=1e2)
         return out
 
 

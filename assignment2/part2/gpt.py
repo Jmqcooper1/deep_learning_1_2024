@@ -133,7 +133,9 @@ class CausalSelfAttention(nn.Module):
         """
         # Generate RoPE embeddings dynamically based on T
         seq_pos = torch.arange(T, device=xq.device)  # Shape: (T)
-        freqs = seq_pos[:, None] * self.inv_freq[None, :]  # Shape: (T, dim//2)
+        freqs = seq_pos[:, None] * self.inv_freq[None, :].to(
+            xq.device
+        )  # Shape: (T, dim//2)
         pos_emb = freqs.view(1, 1, T, -1)  # Shape: (1, 1, T, dim)
 
         # Split pos into sin and cos components, repeating each to match xq and xk dimensions
@@ -210,7 +212,7 @@ class CausalSelfAttention(nn.Module):
             att = (q @ k.transpose(-2, -1)) * scale
             # Apply causal mask
             mask = self.mask[:, :, :T, :T]
-            att = att.masked_fill(mask == 0, -1e9)
+            att = att.masked_fill(mask == 0, -1e4)
             # Apply attention to the values
             att = att - att.max(dim=-1, keepdim=True)[0]
             att = F.softmax(att, dim=-1)

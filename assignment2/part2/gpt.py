@@ -600,6 +600,7 @@ class GPT(nn.Module):
 
                 # optionally apply top-p sampling
                 if top_p is not None:
+                    # followed the assignment 2 documentation on the math for top-p
                     sorted_probs, sorted_indices = torch.sort(probs, descending=True)
                     cumsum_probs = torch.cumsum(sorted_probs, dim=-1)
                     mask = cumsum_probs <= top_p

@@ -20,8 +20,9 @@ import numpy as np
 
 
 class CNNEncoder(nn.Module):
-    def __init__(self, num_input_channels: int = 1, num_filters: int = 32,
-                 z_dim: int = 20):
+    def __init__(
+        self, num_input_channels: int = 1, num_filters: int = 32, z_dim: int = 20
+    ):
         """Encoder with a CNN network
         Inputs:
             num_input_channels - Number of input channels of the image. For
@@ -38,7 +39,25 @@ class CNNEncoder(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        raise NotImplementedError
+        self.z_dim = z_dim
+        self.encoder = nn.Sequential(
+            nn.Conv2d(
+                num_input_channels, num_filters, kernel_size=3, padding=1, stride=2
+            ),
+            nn.GELU(),
+            nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(num_filters, 2 * num_filters, kernel_size=3, padding=1, stride=2),
+            nn.GELU(),
+            nn.Conv2d(2 * num_filters, 2 * num_filters, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(
+                2 * num_filters, 2 * num_filters, kernel_size=3, padding=1, stride=2
+            ),
+            nn.GELU(),
+            nn.Flatten(),
+            nn.Linear(2 * 16 * num_filters, 2 * z_dim),
+        )
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -56,9 +75,8 @@ class CNNEncoder(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        mean = None
-        log_std = None
-        raise NotImplementedError
+        x = self.encoder(x)
+        mean, log_std = torch.chunk(x, 2, dim=1)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -66,8 +84,9 @@ class CNNEncoder(nn.Module):
 
 
 class CNNDecoder(nn.Module):
-    def __init__(self, num_input_channels: int = 16, num_filters: int = 32,
-                 z_dim: int = 20):
+    def __init__(
+        self, num_input_channels: int = 16, num_filters: int = 32, z_dim: int = 20
+    ):
         """Decoder with a CNN network.
         Inputs:
             num_input_channels - Number of channels of the image to
@@ -84,7 +103,42 @@ class CNNDecoder(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        raise NotImplementedError
+        self.decoder_input = nn.Sequential(
+            nn.Linear(z_dim, 2 * 16 * num_filters), nn.GELU()
+        )
+
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(
+                2 * num_filters,
+                2 * num_filters,
+                kernel_size=3,
+                output_padding=0,
+                padding=1,
+                stride=2,
+            ),
+            nn.GELU(),
+            nn.Conv2d(2 * num_filters, 2 * num_filters, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.ConvTranspose2d(
+                2 * num_filters,
+                num_filters,
+                kernel_size=3,
+                output_padding=1,
+                padding=1,
+                stride=2,
+            ),
+            nn.GELU(),
+            nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.ConvTranspose2d(
+                num_filters,
+                num_input_channels,
+                kernel_size=3,
+                output_padding=1,
+                padding=1,
+                stride=2,
+            ),
+        )
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -102,8 +156,9 @@ class CNNDecoder(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        x = None
-        raise NotImplementedError
+        x = self.decoder_input(z)
+        x = x.reshape(x.shape[0], -1, 4, 4)
+        x = self.decoder(x)
         #######################
         # END OF YOUR CODE    #
         #######################

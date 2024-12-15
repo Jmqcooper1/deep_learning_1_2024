@@ -30,13 +30,14 @@ def sample_reparameterize(mean, std):
         z - A sample of the distributions, with gradient support for both mean and std.
             The tensor should have the same shape as the mean and std input tensors.
     """
-    assert not (std < 0).any().item(), "The reparameterization trick got a negative std as input. " + \
-                                       "Are you sure your input is std and not log_std?"
+    assert not (std < 0).any().item(), (
+        "The reparameterization trick got a negative std as input. "
+        + "Are you sure your input is std and not log_std?"
+    )
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    z = None
-    raise NotImplementedError
+    z = mean + std * torch.randn_like(mean)
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -58,8 +59,7 @@ def KLD(mean, log_std):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    KLD = None
-    raise NotImplementedError
+    KLD = 0.5 * (torch.exp(2 * log_std) + mean**2 - 1 - 2 * log_std).sum(dim=-1)
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -78,8 +78,7 @@ def elbo_to_bpd(elbo, img_shape):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    bpd = None
-    raise NotImplementedError
+    bpd = elbo / (np.prod(img_shape[1:]) * np.log(2))
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -101,7 +100,7 @@ def visualize_manifold(decoder, grid_size=20):
     """
 
     ## Hints:
-    # - You can use the icdf method of the torch normal distribution  to obtain z values at percentiles.
+    # - You can use the icdf method of the torch normal distribution to obtain z values at percentiles.
     # - Use the range [0.5/grid_size, 1.5/grid_size, ..., (grid_size-0.5)/grid_size] for the percentiles.
     # - torch.meshgrid might be helpful for creating the grid of values
     # - You can use torchvision's function "make_grid" to combine the grid_size**2 images into a grid
@@ -110,11 +109,15 @@ def visualize_manifold(decoder, grid_size=20):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    img_grid = None
-    raise NotImplementedError
+    percentiles = torch.linspace(0.5 / grid_size, 1 - 0.5 / grid_size, grid_size)
+    z = torch.distributions.Normal(0, 1).icdf(percentiles)
+    z1, z2 = torch.meshgrid(z, z, indexing="ij")
+    grid = torch.stack([z1.flatten(), z2.flatten()], dim=1)
+    x = decoder(grid).softmax(1)
+    images = torch.argmax(x, dim=1).unsqueeze(1).float() / 15.0
+    img_grid = make_grid(images, nrow=grid_size)
     #######################
     # END OF YOUR CODE    #
     #######################
 
     return img_grid
-

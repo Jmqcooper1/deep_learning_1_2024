@@ -140,13 +140,11 @@ def train(
                         # Get adverserial examples using PGD attack
                         # Add them to the original batch
                         # Make sure the model has the correct labels
-                        pertubed_data = pgd_attack(
+                        pertubed_image = pgd_attack(
                             model, inputs, labels, criterion, defense_args
-                        )
-                        pertubed_data = pertubed_data.to(device)
+                        ).to(device)
 
-                        # Add the perturbed data to the original batch
-                        inputs = torch.cat((inputs, pertubed_data), dim=0)
+                        inputs = torch.cat((inputs, pertubed_image), dim=0)
                         labels = torch.cat((labels, labels), dim=0)
 
                         optimizer.zero_grad()

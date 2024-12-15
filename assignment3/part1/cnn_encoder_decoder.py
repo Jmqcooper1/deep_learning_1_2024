@@ -39,7 +39,6 @@ class CNNEncoder(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        self.z_dim = z_dim
         self.encoder = nn.Sequential(
             nn.Conv2d(
                 num_input_channels, num_filters, kernel_size=3, padding=1, stride=2
@@ -103,9 +102,7 @@ class CNNDecoder(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        self.decoder_input = nn.Sequential(
-            nn.Linear(z_dim, 2 * 16 * num_filters), nn.GELU()
-        )
+        self.input = nn.Sequential(nn.Linear(z_dim, 2 * 16 * num_filters), nn.GELU())
 
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(
@@ -156,7 +153,7 @@ class CNNDecoder(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        x = self.decoder_input(z)
+        x = self.input(z)
         x = x.reshape(x.shape[0], -1, 4, 4)
         x = self.decoder(x)
         #######################

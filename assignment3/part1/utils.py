@@ -113,8 +113,10 @@ def visualize_manifold(decoder, grid_size=20):
     z = torch.distributions.Normal(0, 1).icdf(percentiles)
     z1, z2 = torch.meshgrid(z, z, indexing="ij")
     grid = torch.stack([z1.flatten(), z2.flatten()], dim=1)
-    x = decoder(grid).softmax(1)
-    images = torch.argmax(x, dim=1).unsqueeze(1).float() / 15.0
+    x = decoder(grid)
+    x = torch.nn.functional.softmax(x, dim=1)
+    four_bit_norm = 2**4 - 1
+    images = torch.argmax(x, dim=1).unsqueeze(1).float() / four_bit_norm
     img_grid = make_grid(images, nrow=grid_size)
     #######################
     # END OF YOUR CODE    #
